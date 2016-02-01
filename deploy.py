@@ -82,7 +82,7 @@ class ApplyECS():
 if __name__ == '__main__':
     p = ApplyECS()
 
-    parser = argparse.ArgumentParser(description='Download JSON from a Rest Endpoint to files. Slashes in id converted to __')
+    parser = argparse.ArgumentParser(description='Deploys an updated version of a task or service to ECS')
     parser.add_argument('--cluster', help='name of the ecs cluster', default='default')
     parser.add_argument('--region', help='region in aws', default='us-east-1')
     parser.add_argument('--service', help='Name of the Service')
