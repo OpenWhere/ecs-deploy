@@ -88,7 +88,10 @@ class ApplyECS():
                 container["image"] = image.replace('ENV', env)
             env_param = container['environment']
             for var in env_param:
+                name = var['name']
                 value = var['value']
+                if value.startswith('$'):
+                    var['value'] = os.environ[value.lstrip('$')]
                 if 'ENV' in value:
                     var['value'] = value.replace('ENV', env)
                 elif 'REGION' in value:
