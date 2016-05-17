@@ -13,6 +13,11 @@ python deploy.py --help
 Bump a task version `deploy.py --cluster your-cluster --region us-east-1 --task task-name`
 Bump a service version `deploy.py --cluster your-cluster --region us-east-1 --service service-name`
 
+##Alternative Script
+An alternative script creates or updates services and tasks based on task definitions in a folder structure. Use this if you also want the script to create from scratch not just update ECS Tasks and services.
+
+Run the script `docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy ./ecsUpdate.py --help`
+
 ##AWS Credentials
 This script assumes you have exposed your AWS credentials by one of the typical means, env variables, ~/.aws/credentials, or an IAM Role.
 https://github.com/boto/boto3

@@ -8,6 +8,10 @@ def remove_nulls(d):
 
 class ApplyECS():
 
+    def catfile(self, fn):
+      with open(fn) as f:
+        print f.read()
+
     def main(self, cluster, region, name, env, type, dir_):
 
         #Register Tasks
@@ -37,9 +41,14 @@ class ApplyECS():
                 if name is None or name in filename:
                     print('Filename is %s' % filename)
                     with open(filename, 'r') as f_h:
-                        ecs_json = json.loads(f_h.read(), object_hook=remove_nulls)
+                        try:
+                            ecs_json = json.loads(f_h.read(), object_hook=remove_nulls)
 
-                        handle_file(client, cluster, ecs_json, env, region, filename)
+                            handle_file(client, cluster, ecs_json, env, region, filename)
+                        except:
+                            print "Error reading file %s " % filename
+                            self.catfile(filename)
+                            raise
 
 
     @staticmethod
