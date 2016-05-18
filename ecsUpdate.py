@@ -14,20 +14,22 @@ class ApplyECS():
 
     def main(self, cluster, region, name, env, type, dir_):
 
+        file_dir = os.path.dirname(os.path.realpath(__file__))
+        job_path = os.path.join(file_dir, dir_)
+
         #Register Tasks
         if 'all' in type or 'task' in type:
-            self.load(cluster, region, name, env, dir_, ApplyECS.register_task)
+            print "Checking directory %s/ecs_tasks for tasks" % job_path
+            self.load(cluster, region, name, env, job_path, ApplyECS.register_task)
 
         #Services must be done after tasks
         if 'all' in type or 'service' in type:
-            self.load(cluster, region, name, env, dir_, ApplyECS.register_service)
+            print "Checking directory %s/ecs_services for services" % job_path
+            self.load(cluster, region, name, env, job_path, ApplyECS.register_service)
 
-    def load(self,cluster, region, name, env, dir_, handle_file):
+    def load(self,cluster, region, name, env, job_path, handle_file):
 
         client = boto3.client('ecs', region_name=region)
-
-        file_dir = os.path.dirname(os.path.realpath(__file__))
-        job_path = os.path.join(file_dir, dir_)
 
         for subdir, dirs, files in os.walk(job_path):
             for fn in files:
@@ -39,7 +41,6 @@ class ApplyECS():
                     continue
 
                 if name is None or name in filename:
-                    print('Filename is %s' % filename)
                     with open(filename, 'r') as f_h:
                         try:
                             ecs_json = json.loads(f_h.read(), object_hook=remove_nulls)
@@ -76,8 +77,8 @@ class ApplyECS():
                 # convert to named paramters
                 response = client.create_service(**ecs_json)
             except Exception as e:
-                print "Error creating:", e.message
-                print "Attempting to update service"
+                print "Did not create:", e.message
+                print "Attempting to update an existing service"
                 ecs_json['service'] = ecs_json['serviceName']
                 del ecs_json['serviceName']
                 response = client.update_service(**ecs_json)
