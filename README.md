@@ -1,7 +1,9 @@
 # ecs-deploy
 Automate Deployment of AWS ECS (Elastic Container Service) Tasks and Services
 
-This is a simple python script which allows you to update the deployment of new versions of ECS Tasks and Services. This script assumes you have another build process releasing the new containers. This script then allows you to automatically bump your Task or Service to the new Docker tag or version.
+This project contains two python scripts which allows you to update the deployment of new versions of ECS Tasks and Services. This script assumes you have another build process releasing the new containers. This script then allows you to automatically bump your Task or Service to the new Docker tag or version.
+
+The alternative script allows you to also initially update and Create tasks and servics definitions based on the task and services json definitions checked into your project (or anywhere else). We have found this the most effective method as we can fully automate the Conitnous Integration and Delivery of ECS Tasks and Services.
 
 ## Usage
 ```python
@@ -14,14 +16,14 @@ Bump a task version `deploy.py --cluster your-cluster --region us-east-1 --task 
 Bump a service version `deploy.py --cluster your-cluster --region us-east-1 --service service-name`
 
 ##Alternative Script
-An alternative script creates or updates services and tasks based on task definitions in a folder structure. Use this if you also want the script to create from scratch not just update ECS Tasks and services.
+An alternative script creates or updates services and tasks based on task definitions in a directory folder structure. Use this if you also want the script to create from scratch not just update ECS Tasks and Services in your cluster. This script is ideally invoked during the deploy process of your build process such from within Jenkins or CircleCI.
 
-We evoke this docker container during our other project build process in order to automatically deploy and update ECS tasks and services. Tasks and services are checked inside the project to describe how the project will deployed to ECS. A diretory structure of `ecs/ecs_services`, `ecs/ecs_tasks` is assumed.
+We invoke this docker container during our other project build process in order to automatically deploy and update ECS tasks and services. Tasks and services are checked inside the project to describe how the project will deployed to ECS. Task and Service adjustments are managed just like any other code change. A relative diretory structure of `ecs/ecs_services`, `ecs/ecs_tasks` is assumed for organizing the task and service definitions.
 
-Run the script `docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy ./ecsUpdate.py --help`
+To run the script via docker `docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy ./ecsUpdate.py --help`
 
 ###Overriding environment variables
-This script can automatically configure environment specific settings inside your task definitions. It will also namespace tasks by environment as tasks names are unique per account not VPC. `ENV` and `REGOION` are subsituted by default inside the `containerDefinitions.environment` section of a task definition as well as in the `containderDefinitions.image`
+This script can automatically configure environment specific settings inside your task definitions. It will also namespace tasks by environment as task definition names are unique per account not VPC. `ENV` and `REGOION` are subsituted by default inside the `containerDefinitions.environment` section of a task definition as well as in the `containderDefinitions.image`
 
 To override your own custom variable simply prefix the value with a `$` inside the task definition and provide the variable to docker via `-e`. For example
 
