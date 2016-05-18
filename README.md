@@ -1,7 +1,7 @@
 # ecs-deploy
 Automate Deployment of AWS ECS (Elastic Container Service) Tasks and Services
 
-This project contains two python scripts which allows you to update the deployment of new versions of ECS Tasks and Services. This script assumes you have another build process releasing the new containers. This script then allows you to automatically bump your Task or Service to the new Docker tag or version.
+This project contains two python scripts which allow you to update the deployment of new versions of ECS Tasks and Services. This script assumes you have another build process releasing the new containers. This script then allows you to automatically bump your Task or Service to the new Docker tag or version.
 
 The alternative script allows you to also initially update and Create tasks and servics definitions based on the task and services json definitions checked into your project (or anywhere else). We have found this the most effective method as we can fully automate the Conitnous Integration and Delivery of ECS Tasks and Services.
 
