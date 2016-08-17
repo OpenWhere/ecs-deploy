@@ -1,0 +1,2 @@
+boto3==1.4.0
+setuptools==20.2.2
