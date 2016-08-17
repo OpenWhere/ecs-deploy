@@ -1,12 +1,14 @@
 # ecs-deploy
 Automate Deployment of AWS ECS (Elastic Container Service) Tasks and Services
 
-This is a simple python script(s) which allows you to update the deployment of new versions of ECS Tasks and Services. This script assumes you have another build process releasing the new containers. This script then allows you to automatically bump your Task or Service to the new Docker tag or version.
 
-This script also now handles TargetGroup and Rule creation with new AWS Application Load Balancers
+This is a simple python script(s) which allows you to update the deployment of new versions of ECS Tasks and Services. This script assumes you have another build process releasing the new containers. The script allows you to also initially update and Create ECS Task(s) and Service(s) definitions based on the task and services json definitions checked into your project (or anywhere else). We have found this the most effective method as we can fully automate the Continuous Integration and Delivery of ECS Tasks and Services. ECS applications can be laid down on top of an ECS cluster created via any other means. You can use this script if you want to create from scratch (not just update) ECS Tasks and Services in your cluster. This script is ideally invoked during the deploy process of your build process such from within Jenkins or CircleCI.
 
-##Note
-The older deploy.py script is deprecated
+8/16 - This script also now supports TargetGroup and Rule creation with new AWS Application Load Balancers. This allows you to automatically route to ECS Services running on random ports in your ECS cluster without the need for something like consul! See [AWS Application Load Balancer](https://aws.amazon.com/elasticloadbalancing/applicationloadbalancer/)
+
+###Note
+The older deploy.py script is deprecated as we have determined this method less effective for initial roll out and continous delivery of service  / task updates.
+
 
 ## Usage
 ```python
@@ -14,17 +16,12 @@ pip install requirements.txt
 docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy ./ecsUpdate.py --help
 ```
 
-##Alternative Script
-An alternative script creates or updates services and tasks based on task definitions in a folder structure. Use this if you also want the script to create from scratch not just update ECS Tasks and services.
+We evoke this docker container during our other project build process in order to automatically deploy and update ECS tasks and services, and register them with the AWS Application Load Balancer. Tasks and Services are checked inside the project to determine how the project will deployed to ECS. In this way, your Task and Service adjustments are managed just like any other code change. A relative directory structure of `ecs/ecs_services`, `ecs/ecs_tasks` somewhere in your project is assumed for organizing the task and service definitions.
 
-We evoke this docker container during our other project build process in order to automatically deploy and update ECS tasks and services, and register them with the AWS Application Load Balancer. Tasks and services are checked inside the project to describe how the project will deployed to ECS. A diretory structure of `ecs/ecs_services`, `ecs/ecs_tasks` is assumed.
-
-Run the script `docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy ./ecsUpdate.py --help`
-
-You may also choose to pass AWS credentials using environment variables
+You may also choose to pass AWS credentials using Docker environment variables
 
 ###Overriding environment variables
-This script can automatically configure environment specific settings inside your task definitions. It will also namespace tasks by environment as tasks names are unique per account not VPC. `ENV` and `REGOION` are subsituted by default inside the `containerDefinitions.environment` section of a task definition as well as in the `containderDefinitions.image`
+This script can automatically configure environment specific settings inside your task definitions. It will also namespace tasks by environment as task definition names are unique per account not VPC. `ENV` and `REGION` are substituted by default inside the `containerDefinitions.environment` section of a task definition as well as in the `containderDefinitions.image`
 
 To override your own custom variable simply prefix the value with a `$` inside the task definition and provide the variable to docker via `-e`. For example
 
@@ -39,7 +36,7 @@ docker run -e MY_ENVIRONMENT_VARIABLE=foo openwhere/ecs-deploy ./ecsUpdate.py -e
 ```
 
 Here is a full example of typical invocation:
-`docker run --rm --volume ${PWD}/ecs:/usr/src/app/ecs -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID -e MY_ENVIRONMENT_VARIABLE=foo openwhere/ecs-deploy ./ecsUpdate.py --cluster analytics-pgp --env pgp --region us-east-1`
+`docker run --rm --volume ${PWD}/ecs:/usr/src/app/ecs -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID -e MY_ENVIRONMENT_VARIABLE=foo openwhere/ecs-deploy ./ecsUpdate.py --cluster ecs-dev --env dev --region us-east-1`
 
 ##AWS Credentials
 This script assumes you have exposed your AWS credentials by one of the typical means, env variables, ~/.aws/credentials, or an IAM Role.
@@ -77,7 +74,7 @@ You must also already have an IAM Service role created for your ECS cluster to c
 In this example, if your cluster is named "dev" the script will look for a Target Group called "foo-service-dev". If it does not exist it will attempt to create it.
 Make sure you have proper IAM rights. On subsequent runs it will look up this definition. It will also register a rule based on the container name, in this case
 ``/foo-service/*` where any calls to ``/foo-service` will route to the target group foo-service-dev running your container. This container name must match "name" inside
-your task definition. Also be aware, currently AWS forwards on the full path ``/foo-service` to your contaner so you must handle that as part of your path.
+your task definition. Also be aware, currently AWS forwards on the full path ``/foo-service` to your container so you must handle that as part of your path.
 
 The script will automatically look for CLUSTER or ENV in the serviceName, loadBalancerNAme, and role which allows you to use the same service definition as
 part of a CI process for multiple environments and / or clusters.
