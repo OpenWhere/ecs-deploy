@@ -13,7 +13,7 @@ The older deploy.py script is deprecated as we have determined this method less 
 ## Usage
 ```python
 pip install requirements.txt
-docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy ./ecsUpdate.py --help
+docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy:v1.1 ./ecsUpdate.py --help
 ```
 
 We evoke this docker container during our other project build process in order to automatically deploy and update ECS tasks and services, and register them with the AWS Application Load Balancer. Tasks and Services are checked inside the project to determine how the project will deployed to ECS. In this way, your Task and Service adjustments are managed just like any other code change. A relative directory structure of `ecs/ecs_services`, `ecs/ecs_tasks` somewhere in your project is assumed for organizing the task and service definitions.
@@ -36,7 +36,7 @@ docker run -e MY_ENVIRONMENT_VARIABLE=foo openwhere/ecs-deploy ./ecsUpdate.py -e
 ```
 
 Here is a full example of typical invocation:
-`docker run --rm --volume ${PWD}/ecs:/usr/src/app/ecs -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID -e MY_ENVIRONMENT_VARIABLE=foo openwhere/ecs-deploy ./ecsUpdate.py --cluster ecs-dev --env dev --region us-east-1`
+`docker run --rm --volume ${PWD}/ecs:/usr/src/app/ecs -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID -e MY_ENVIRONMENT_VARIABLE=foo openwhere/ecs-deploy:v1.1 ./ecsUpdate.py --cluster ecs-dev --env dev --region us-east-1`
 
 ##AWS Credentials
 This script assumes you have exposed your AWS credentials by one of the typical means, env variables, ~/.aws/credentials, or an IAM Role.
