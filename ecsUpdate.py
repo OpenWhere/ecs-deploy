@@ -25,7 +25,7 @@ class ApplyECS():
       with open(fn) as f:
         print f.read()
 
-    def main(self, cluster, region, name, env, type, dir_):
+    def main(self, cluster, region, name, env, type, dir_, healthcheckpath):
 
         file_dir = os.path.dirname(os.path.realpath(__file__))
         job_path = os.path.join(file_dir, dir_)
@@ -33,14 +33,14 @@ class ApplyECS():
         #Register Tasks
         if 'all' in type or 'task' in type:
             logging.info("Checking directory %s/ecs_tasks for tasks" % job_path)
-            self.load(cluster, region, name, env, job_path, ApplyECS.register_task)
+            self.load(cluster, region, name, env, job_path, healthcheckpath, ApplyECS.register_task)
 
         #Services must be done after tasks
         if 'all' in type or 'service' in type:
             logging.info("Checking directory %s/ecs_services for services" % job_path)
-            self.load(cluster, region, name, env, job_path, ApplyECS.register_service)
+            self.load(cluster, region, name, env, job_path, healthcheckpath, ApplyECS.register_service)
 
-    def load(self,cluster, region, name, env, job_path, handle_file):
+    def load(self,cluster, region, name, env, job_path, healthcheckpath, handle_file):
 
         client = boto3.client('ecs', region_name=region)
         elb_client = boto3.client('elbv2', region_name=region)
@@ -60,7 +60,7 @@ class ApplyECS():
                         try:
                             ecs_json = json.loads(f_h.read(), object_hook=remove_nulls)
                             count += 1
-                            handle_file(client, cluster, ecs_json, env, region, filename, count, elb_client)
+                            handle_file(client, cluster, ecs_json, env, region, filename, count, elb_client, healthcheckpath)
                         except:
                             logging.exception("Error reading file %s " % filename)
                             self.catfile(filename)
@@ -68,7 +68,7 @@ class ApplyECS():
 
 
     @staticmethod
-    def register_task(client, cluster, ecs_json, env, region, filename, count=0, elb_client=None):
+    def register_task(client, cluster, ecs_json, env, region, filename, count, elb_client, healthcheckpath):
         if 'ecs_tasks' in filename:
             logging.info("Submitting - " + filename)
             if env is not None:
@@ -82,7 +82,7 @@ class ApplyECS():
                 print "Error uploading " + filename
 
     @staticmethod
-    def register_service(client, cluster, ecs_json, env, region, filename, count, elb_client):
+    def register_service(client, cluster, ecs_json, env, region, filename, count, elb_client, healthcheckpath):
         if 'ecs_services' in filename:
             logging.info("Submitting - " + filename)
             ecs_json['cluster'] = cluster
@@ -102,7 +102,8 @@ class ApplyECS():
                     target_arn = ApplyECS.configure_alb_and_rules(client=elb_client, elb_name=elb_name,
                                                                   service_name=service_name,
                                                                   container_name=container_name, cluster=cluster,
-                                                                  env=env, priority=count)
+                                                                  env=env, priority=count,
+                                                                  health_check_path=healthcheckpath)
 
                     ecs_json['serviceName'] = service_name
                     lb['targetGroupArn'] = target_arn
@@ -129,7 +130,7 @@ class ApplyECS():
                 logging.error("Error uploading " + filename)
 
     @staticmethod
-    def configure_alb_and_rules(client, elb_name, service_name, container_name, cluster, env, priority):
+    def configure_alb_and_rules(client, elb_name, service_name, container_name, cluster, env, priority, health_check_path):
         # 1. Get the ALB
         balancer_arn, vpc_id = ApplyECS.get_load_balancer(client, elb_name, cluster, env)
         # 2. Find the listener
@@ -137,7 +138,8 @@ class ApplyECS():
         # 3. Check or Create Target Group
         target_arn = ApplyECS.get_or_create_elb_target_group(client, elb_arn=balancer_arn, vpc_id=vpc_id,
                                                              cluster=cluster, env=env,
-                                                             service_name=service_name)
+                                                             service_name=service_name,
+                                                             health_check_path=health_check_path)
         # 4. Check or Create Routing Rule
         ApplyECS.check_or_create_rule(client, listener_arn, target_arn, container_name, priority)
         return target_arn
@@ -180,7 +182,7 @@ class ApplyECS():
             sys.exit(1)
 
     @staticmethod
-    def get_or_create_elb_target_group(client, elb_arn, vpc_id, cluster, env, service_name):
+    def get_or_create_elb_target_group(client, elb_arn, vpc_id, cluster, env, service_name, health_check_path):
 
         env_service_name = ApplyECS.update_name_for_config(service_name, cluster, env)
         logging.info("Checking for target group")
@@ -194,8 +196,8 @@ class ApplyECS():
                 Name=env_service_name,
                 Protocol='HTTP',
                 Port=80, # TODO - way not to hardcode this?
-                VpcId=vpc_id
-                # TODO - customize healthcheck
+                VpcId=vpc_id,
+                HealthCheckPath=health_check_path
             )
             target = response['TargetGroups'][0]
             target_arn = target['TargetGroupArn']
@@ -204,7 +206,13 @@ class ApplyECS():
         else:
             target = target_groups[0]
             target_arn = target['TargetGroupArn']
-            logging.info("Found TargetGroup %s with ARN %s" % (env_service_name, target_arn))
+            logging.info("Found TargetGroup %s with ARN %s, updating" % (env_service_name, target_arn))
+            response = client.modify_target_group(
+                TargetGroupArn=target_arn,
+                HealthCheckProtocol='HTTP',
+                HealthCheckPath=health_check_path
+            )
+            logging.info("Update response: %d to ARN %s" % (response['ResponseMetadata']['HTTPStatusCode'], target_arn))
             return target_arn
 
     @staticmethod
@@ -285,6 +293,7 @@ if __name__ == '__main__':
     parser.add_argument('--name', help='name of task or service')
     parser.add_argument('--type', help='name of task or service', default='all')
     parser.add_argument('--dir', help='relative directory name of service and task definitions', default='ecs')
+    parser.add_argument('--healthcheckpath', help='path to use for target group health check', default='/') #TODO replace this is target group definition file
     args = parser.parse_args()
 
-    p.main(args.cluster, args.region, args.name, args.env, args.type, args.dir)
+    p.main(args.cluster, args.region, args.name, args.env, args.type, args.dir, args.healthcheckpath)
