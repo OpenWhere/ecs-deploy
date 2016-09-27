@@ -21,6 +21,25 @@ We invoke this docker container during our other project build process in order 
 
 You may also choose to pass AWS credentials using Docker environment variables
 
+###Overriding environment variables
+This script can automatically configure environment specific settings inside your task definitions. It will also namespace tasks by environment as task definition names are unique per account not VPC. `ENV` and `REGION` are substituted by default inside the `containerDefinitions.environment` section of a task definition as well as in the `containderDefinitions.image`
+
+To override your own custom variable simply prefix the value with a `$` inside the task definition and provide the variable to docker via `-e`. For example
+
+```
+{
+    "name": "MY_ENVIRONMENT_VARIABLE",
+    "value": "$MY_ENVIRONMENT_VARIABLE"
+}
+
+
+docker run -e MY_ENVIRONMENT_VARIABLE=foo openwhere/ecs-deploy ./ecsUpdate.py -env dev -region us-east-1
+```
+
+Here is a full example of typical invocation:
+`docker run --rm --volume ${PWD}/ecs:/usr/src/app/ecs -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID -e MY_ENVIRONMENT_VARIABLE=foo openwhere/ecs-deploy:v1.1 ./ecsUpdate.py --cluster ecs-dev --env dev --region us-east-1`
+
+
 ## CloudFormation Usage
 ```python
 pip install requirements.txt
