@@ -12,20 +12,8 @@ from ecsUpdate import ApplyECS
 logging.basicConfig(format="%(asctime)s %(levelname)s [%(threadName)s] - %(message)s", stream=sys.stdout,
                     level=logging.INFO)
 
-def remove_nulls(d):
-    return {k: v for k, v in d.iteritems() if v is not None}
 
-def rule_matches(r, name):
-    conditions = r['Conditions']
-    for c in conditions:
-        values = c['Values']
-        for v in values:
-            if name in v:
-                return True
-    return False
-
-
-class ApplyCF():
+class ApplyCF:
     def __init__(self):
         self.success_status = ['CREATE_COMPLETE','UPDATE_COMPLETE']
         self.failed_status = ['CREATE_FAILED', 'ROLLBACK_IN_PROGRESS','ROLLBACK_FAILED','ROLLBACK_COMPLETE','UPDATE_ROLLBACK_IN_PROGRESS','UPDATE_ROLLBACK_FAILED','UPDATE_ROLLBACK_COMPLETE']
