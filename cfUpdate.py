@@ -134,7 +134,7 @@ if __name__ == '__main__':
     p = ApplyCF()
     print(sys.argv)
 
-    parser = argparse.ArgumentParser(description='Uploads / Updates ECS Task & Service Definitions to an ECS Cluster')
+    parser = argparse.ArgumentParser(description='Executes CloudFormation templates to create / update ECS related resources')
     parser.add_argument('--dir', help='relative directory name of service and task definitions', default='ecs')
     parser.add_argument('--cfparams', nargs=argparse.REMAINDER)
     args = parser.parse_args()
