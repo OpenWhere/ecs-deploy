@@ -9,34 +9,33 @@ This is a simple python script(s) which allows you to update the deployment of n
 ###Note
 The older deploy.py script is deprecated as we have determined this method less effective for initial roll out and continous delivery of service  / task updates.
 
+There are two ways to define the services and tasks that get deployed into your environment: 1) json file definitions or 2) CloudFormation templates
 
-## Usage
+## JSON File Definition Usage
 ```python
 pip install requirements.txt
-docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy:v1.1 ./ecsUpdate.py --help
+docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy:v1.3 ./ecsUpdate.py --help
 ```
 
-We evoke this docker container during our other project build process in order to automatically deploy and update ECS tasks and services, and register them with the AWS Application Load Balancer. Tasks and Services are checked inside the project to determine how the project will deployed to ECS. In this way, your Task and Service adjustments are managed just like any other code change. A relative directory structure of `ecs/ecs_services`, `ecs/ecs_tasks` somewhere in your project is assumed for organizing the task and service definitions.
+We invoke this docker container during our other project build process in order to automatically deploy and update ECS tasks and services, and register them with the AWS Application Load Balancer. Tasks and Services are checked inside the project to determine how the project will deployed to ECS. In this way, your Task and Service adjustments are managed just like any other code change. A relative directory structure of `ecs/ecs_services`, `ecs/ecs_tasks` somewhere in your project is assumed for organizing the task and service definitions.
 
 You may also choose to pass AWS credentials using Docker environment variables
 
-###Overriding environment variables
-This script can automatically configure environment specific settings inside your task definitions. It will also namespace tasks by environment as task definition names are unique per account not VPC. `ENV` and `REGION` are substituted by default inside the `containerDefinitions.environment` section of a task definition as well as in the `containderDefinitions.image`
-
-To override your own custom variable simply prefix the value with a `$` inside the task definition and provide the variable to docker via `-e`. For example
-
-```
-{
-    "name": "MY_ENVIRONMENT_VARIABLE",
-    "value": "$MY_ENVIRONMENT_VARIABLE"
-}
-
-
-docker run -e MY_ENVIRONMENT_VARIABLE=foo openwhere/ecs-deploy ./ecsUpdate.py -env dev -region us-east-1
+## CloudFormation Usage
+```python
+pip install requirements.txt
+docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy:v1.3 ./cfUpdate.py --cfparams --cluster ecs-cluster-name --name service-name --env dev --region us-east-1
 ```
 
-Here is a full example of typical invocation:
-`docker run --rm --volume ${PWD}/ecs:/usr/src/app/ecs -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID -e MY_ENVIRONMENT_VARIABLE=foo openwhere/ecs-deploy:v1.1 ./ecsUpdate.py --cluster ecs-dev --env dev --region us-east-1`
+As with the JSON file definition appraoch, this script is invoked during the build process to deploy and update ECS tasks, services and register them with the load balancer.  It can also create other AWS resources such as IAM Roles assiciated with tasks, and autoscaling targets, policies, and alarms and attach them to the ECS service.  `cfUpdate.py` will look inside the relative `ecs` directory for .template files which are assumed to be CloudFormation templates.  Like `ecsUpdate.py` it assumes there is an existing ApplicationLoadBalancer with a listener.
+
+###Setting CloudFormation Parameters
+The values after `--cfparams` are passed to the CloufFormation script.  These can be used to set any parameters in the CloudFormation script.  Four parameters are required after the --cfparams flag for any ECS Service and Task:
+*--cluster: The name of the ECS cluster
+*--name: The name of the service to create
+*--env: The environment name, appended to the service to support having the same service in multiple environments within an account
+*--region: The region in which to create the Service, Task and other resources
+
 
 ##AWS Credentials
 This script assumes you have exposed your AWS credentials by one of the typical means, env variables, ~/.aws/credentials, or an IAM Role.
