@@ -130,6 +130,20 @@ def argv_to_dict(args):
             argsdict[key] = value
     return argsdict
 
+def validate_cf_params(cf_params):
+    if 'name' not in cf_params:
+        logging.error("--cfparams must contain --name [value]")
+        sys.exit(1)
+    if 'env' not in cf_params:
+        logging.error("--cfparams must contain --env [value]")
+        sys.exit(1)
+    if 'cluster' not in cf_params:
+        logging.error("--cfparams must contain --cluster [value]")
+        sys.exit(1)
+    if 'region' not in cf_params:
+        logging.error("--cfparams must contain --region [value]")
+        sys.exit(1)
+
 if __name__ == '__main__':
     p = ApplyCF()
     print(sys.argv)
@@ -139,5 +153,5 @@ if __name__ == '__main__':
     parser.add_argument('--cfparams', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     cf_params = argv_to_dict(args.cfparams)
-
+    validate_cf_params(cf_params)
     p.main(args.dir, cf_params)
