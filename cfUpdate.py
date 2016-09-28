@@ -116,7 +116,7 @@ class ApplyCF:
         cf_params['listenerarn'] = listener_arn
         response = elb_client.describe_rules(ListenerArn=listener_arn)
         rules = response['Rules']
-        top_priority = max([r['Priority'] if r['Priority'] != 'default' else "0" for r in rules])
+        top_priority = max([int(r['Priority']) if r['Priority'] != 'default' else 0 for r in rules])
         cf_params['priority'] = str(int(top_priority) + 1)
 
 
