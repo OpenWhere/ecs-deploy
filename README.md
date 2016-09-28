@@ -46,12 +46,11 @@ pip install requirements.txt
 docker run --volume ~/.aws:/root/.aws --volume ./ecs:/usr/src/app/ecs openwhere/ecs-deploy:v1.3 ./cfUpdate.py --cfparams --cluster ecs-cluster-name --name service-name --env dev --region us-east-1
 ```
 
-As with the JSON file definition appraoch, this script is invoked during the build process to deploy and update ECS tasks, services and register them with the load balancer.  It can also create other AWS resources such as IAM Roles assiciated with tasks, and autoscaling targets, policies, and alarms and attach them to the ECS service.  `cfUpdate.py` will look inside the relative `ecs` directory for .template files which are assumed to be CloudFormation templates.  Like `ecsUpdate.py` it assumes there is an existing ApplicationLoadBalancer with a listener.
+As with the JSON file definition appraoch, this script is invoked during the build process to deploy and update ECS tasks, services and register them with the load balancer.  It can also create other AWS resources such as IAM Roles assiciated with tasks, and autoscaling targets, policies, and alarms and attach them to the ECS service.  `cfUpdate.py` will look inside the relative `ecs` directory for .template and .yml files which are assumed to be CloudFormation templates in the JSON or YAML formats.  The name of the template file will be used to name the created ECS Service and Task.  Like `ecsUpdate.py` it assumes there is an existing ApplicationLoadBalancer with a listener.
 
 ###Setting CloudFormation Parameters
-The values after `--cfparams` are passed to the CloufFormation script.  These can be used to set any parameters in the CloudFormation script.  Four parameters are required after the --cfparams flag for any ECS Service and Task:
+The values after `--cfparams` are passed to the CloufFormation script.  These can be used to set any parameters in the CloudFormation script.  Three parameters are required after the --cfparams flag for any ECS Service and Task:
 *--cluster: The name of the ECS cluster
-*--name: The name of the service to create
 *--env: The environment name, appended to the service to support having the same service in multiple environments within an account
 *--region: The region in which to create the Service, Task and other resources
 

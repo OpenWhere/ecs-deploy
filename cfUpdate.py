@@ -30,7 +30,6 @@ class ApplyCF:
         self.load(job_path, cf_params)
 
     def load(self, job_path, cf_params):
-        name = cf_params['name']
         env = cf_params['env']
         cluster = cf_params['cluster']
         region = cf_params['region']
@@ -45,9 +44,10 @@ class ApplyCF:
 
                 # Skip non-cf files
                 ext = filename.split('.')[-1]
-                if ext != 'template':
+                if ext != 'template' and ext != 'yml':
                     continue
                 name = filename.split('/')[-1].split('.')[0]
+                cf_params['name'] = name
                 logging.info("Processing CloudFormation Template: " + filename)
                 parameters = [{'ParameterKey': 'name', 'ParameterValue': name}]
 
@@ -131,9 +131,6 @@ def argv_to_dict(args):
     return argsdict
 
 def validate_cf_params(cf_params):
-    if 'name' not in cf_params:
-        logging.error("--cfparams must contain --name [value]")
-        sys.exit(1)
     if 'env' not in cf_params:
         logging.error("--cfparams must contain --env [value]")
         sys.exit(1)
