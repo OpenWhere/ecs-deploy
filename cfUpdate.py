@@ -30,7 +30,6 @@ class ApplyCF:
         self.load(job_path, cf_params)
 
     def load(self, job_path, cf_params):
-        name = cf_params['name']
         env = cf_params['env']
         cluster = cf_params['cluster']
         region = cf_params['region']
@@ -45,9 +44,10 @@ class ApplyCF:
 
                 # Skip non-cf files
                 ext = filename.split('.')[-1]
-                if ext != 'template':
+                if ext != 'template' and ext != 'yml':
                     continue
                 name = filename.split('/')[-1].split('.')[0]
+                cf_params['name'] = name
                 logging.info("Processing CloudFormation Template: " + filename)
                 parameters = [{'ParameterKey': 'name', 'ParameterValue': name}]
 
@@ -116,8 +116,9 @@ class ApplyCF:
         cf_params['listenerarn'] = listener_arn
         response = elb_client.describe_rules(ListenerArn=listener_arn)
         rules = response['Rules']
-        top_priority = max([r['Priority'] if r['Priority'] != 'default' else "0" for r in rules])
-        cf_params['priority'] = str(int(top_priority) + 1)
+        if 'priority' not in cf_params:
+            top_priority = max([int(r['Priority']) if r['Priority'] != 'default' else 0 for r in rules])
+            cf_params['priority'] = str(int(top_priority) + 1)
 
 
 def argv_to_dict(args):
@@ -131,9 +132,6 @@ def argv_to_dict(args):
     return argsdict
 
 def validate_cf_params(cf_params):
-    if 'name' not in cf_params:
-        logging.error("--cfparams must contain --name [value]")
-        sys.exit(1)
     if 'env' not in cf_params:
         logging.error("--cfparams must contain --env [value]")
         sys.exit(1)
