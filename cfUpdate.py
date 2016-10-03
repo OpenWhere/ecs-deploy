@@ -2,6 +2,7 @@
 
 import argparse
 import boto3
+import botocore
 import logging
 import os
 import sys
@@ -15,8 +16,8 @@ logging.basicConfig(format="%(asctime)s %(levelname)s [%(threadName)s] - %(messa
 
 class ApplyCF:
     def __init__(self):
-        self.success_status = ['CREATE_COMPLETE','UPDATE_COMPLETE']
-        self.failed_status = ['CREATE_FAILED', 'ROLLBACK_IN_PROGRESS','ROLLBACK_FAILED','ROLLBACK_COMPLETE','UPDATE_ROLLBACK_IN_PROGRESS','UPDATE_ROLLBACK_FAILED','UPDATE_ROLLBACK_COMPLETE']
+        self.success_status = ['CREATE_COMPLETE','UPDATE_COMPLETE','DELETE_COMPLETE ']
+        self.failed_status = ['CREATE_FAILED', 'ROLLBACK_IN_PROGRESS','ROLLBACK_FAILED','ROLLBACK_COMPLETE','UPDATE_ROLLBACK_IN_PROGRESS','UPDATE_ROLLBACK_FAILED','UPDATE_ROLLBACK_COMPLETE','DELETE_FAILED']
 
     def catfile(self, fn):
       with open(fn) as f:
@@ -77,36 +78,64 @@ class ApplyCF:
                                                    'ParameterValue': cf_params[cf_parameter['ParameterKey']]})
                             service_name = "%s-%s-%s" % (env, name, cluster)
                             existing_stacks = cf_client.list_stacks()
-                            cf_command = cf_client.create_stack
+                            existing_stack_id = None
                             for stack in existing_stacks['StackSummaries']:
-                                if stack['StackName'] == service_name and stack['StackStatus'] != 'DELETE_COMPLETE' :
-                                    cf_command = cf_client.update_stack
+                                if stack['StackName'] == service_name and stack['StackStatus'] != 'DELETE_COMPLETE':
+                                    existing_stack_id = stack['StackId']
                                     break
-                            logging.info("Updating CloudFormation Stack: " + service_name)
-                            cf_response = cf_command(StackName=service_name, TemplateBody=cf_template, Parameters=parameters, Capabilities=["CAPABILITY_IAM"])
+                            if existing_stack_id is not None:
+                                logging.info("Deleting existing CloudFormation Stack: " + existing_stack_id)
+                                delete_cf_response = cf_client.delete_stack(StackName=service_name)
+                                stack_status = self.wait_for_stack_deletion(cf_client, existing_stack_id, service_name)
+                            logging.info("Creating CloudFormation Stack: " + service_name)
+                            cf_response = cf_client.create_stack(StackName=service_name, TemplateBody=cf_template, Parameters=parameters, Capabilities=["CAPABILITY_IAM"])
+                            creating_stack_id = cf_response['StackId']
                         except Exception as e:
                             logging.error("Error executing CloudFormation: %s" % filename)
                             logging.exception(e)
                             sys.exit(1)
                         logging.info(cf_response)
+                        stack_status = self.wait_for_stack_creation(cf_client, creating_stack_id, service_name)
 
-                        while True:
-                            time.sleep(5)
+    def wait_for_stack_creation(self, cf_client, creating_stack_id, service_name):
+        while True:
+            time.sleep(5)
+            try:
+                describe_stacks_response = cf_client.describe_stacks(StackName=creating_stack_id)
+                stack_status = describe_stacks_response['Stacks'][0]['StackStatus']
+                if stack_status in self.success_status:
+                    logging.info("Stack creation complete, status: %s" % stack_status)
+                    break
+                elif stack_status in self.failed_status:
+                    logging.error("Stack creation failed, status: %s" % stack_status)
+                    sys.exit(1)
+                else:
+                    logging.info("Stack creation in progress, status: %s" % stack_status)
+            except Exception as e:
+                logging.error("CloudFormation executed OK but stack was not created/updated: %s" % service_name)
+                logging.exception(e)
+                sys.exit(1)
+        return stack_status
 
-                            try:
-                                describe_stacks_response = cf_client.describe_stacks(StackName=service_name)
-                                stack_status = describe_stacks_response['Stacks'][0]['StackStatus']
-                                if stack_status in self.success_status:
-                                    logging.info("Stack create/update complete, status: %s" % stack_status)
-                                    sys.exit(0)
-                                elif stack_status in self.failed_status:
-                                    logging.error("Stack create/update failed, status: %s" % stack_status)
-                                    sys.exit(1)
-                            except Exception as e:
-                                logging.error("CloudFormation executed OK but stack was not created/updated: %s" % service_name)
-                                logging.exception(e)
-                                sys.exit(1)
-
+    def wait_for_stack_deletion(self, cf_client, existing_stack_id, service_name):
+        while True:
+            time.sleep(5)
+            try:
+                existing_stacks = cf_client.describe_stacks(StackName=existing_stack_id)
+                stack_status = existing_stacks['Stacks'][0]['StackStatus']
+                if stack_status == 'DELETE_COMPLETE':
+                    logging.info("Stack delete complete, status: %s" % stack_status)
+                    break
+                elif stack_status == 'DELETE_FAILED':
+                    logging.error("Stack delete failed, status: %s" % stack_status)
+                    sys.exit(1)
+                else:
+                    logging.info("Stack deletion in progress, status: %s" % stack_status)
+            except Exception as e:
+                logging.error("Existing stack was not deleted: %s" % service_name)
+                logging.exception(e)
+                sys.exit(1)
+        return stack_status
 
     def extract_common_ecs_params(self, cf_params, cluster, elb_name, env, region):
         elb_client = boto3.client('elbv2', region_name=region)
