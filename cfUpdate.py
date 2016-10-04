@@ -16,8 +16,8 @@ logging.basicConfig(format="%(asctime)s %(levelname)s [%(threadName)s] - %(messa
 
 class ApplyCF:
     def __init__(self):
-        self.success_status = ['CREATE_COMPLETE','UPDATE_COMPLETE','DELETE_COMPLETE ']
-        self.failed_status = ['CREATE_FAILED', 'ROLLBACK_IN_PROGRESS','ROLLBACK_FAILED','ROLLBACK_COMPLETE','UPDATE_ROLLBACK_IN_PROGRESS','UPDATE_ROLLBACK_FAILED','UPDATE_ROLLBACK_COMPLETE','DELETE_FAILED']
+        self.success_status = ['CREATE_COMPLETE','UPDATE_COMPLETE']
+        self.failed_status = ['CREATE_FAILED', 'ROLLBACK_IN_PROGRESS','ROLLBACK_FAILED','ROLLBACK_COMPLETE','UPDATE_ROLLBACK_IN_PROGRESS','UPDATE_ROLLBACK_FAILED','UPDATE_ROLLBACK_COMPLETE']
 
     def catfile(self, fn):
       with open(fn) as f:
