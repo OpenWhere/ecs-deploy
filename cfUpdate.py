@@ -77,10 +77,10 @@ class ApplyCF:
                                 parameters.append({'ParameterKey': cf_parameter['ParameterKey'],
                                                    'ParameterValue': cf_params[cf_parameter['ParameterKey']]})
                             service_name = "%s-%s-%s" % (env, name, cluster)
-                            existing_stacks = cf_client.describe_stacks(StackName=service_name)
+                            existing_stacks = cf_client.list_stacks()
                             existing_stack_id = None
                             cf_command = cf_client.create_stack
-                            for stack in existing_stacks['Stacks']:
+                            for stack in existing_stacks['StackSummaries']:
                                 if stack['StackName'] == service_name and stack['StackStatus'] != 'DELETE_COMPLETE':
                                     existing_stack_id = stack['StackId']
                                     cf_command = cf_client.update_stack
