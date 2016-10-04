@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
 import argparse
-import boto3
-import botocore
 import logging
 import os
 import sys
 import time
+
+import boto3
 
 from ecsUpdate import ApplyECS
 
@@ -77,25 +77,48 @@ class ApplyCF:
                                 parameters.append({'ParameterKey': cf_parameter['ParameterKey'],
                                                    'ParameterValue': cf_params[cf_parameter['ParameterKey']]})
                             service_name = "%s-%s-%s" % (env, name, cluster)
-                            existing_stacks = cf_client.list_stacks()
+                            existing_stacks = cf_client.describe_stacks(StackName=service_name)
                             existing_stack_id = None
-                            for stack in existing_stacks['StackSummaries']:
+                            cf_command = cf_client.create_stack
+                            for stack in existing_stacks['Stacks']:
                                 if stack['StackName'] == service_name and stack['StackStatus'] != 'DELETE_COMPLETE':
                                     existing_stack_id = stack['StackId']
+                                    cf_command = cf_client.update_stack
                                     break
-                            if existing_stack_id is not None:
-                                logging.info("Deleting existing CloudFormation Stack: " + existing_stack_id)
-                                delete_cf_response = cf_client.delete_stack(StackName=service_name)
-                                stack_status = self.wait_for_stack_deletion(cf_client, existing_stack_id, service_name)
-                            logging.info("Creating CloudFormation Stack: " + service_name)
-                            cf_response = cf_client.create_stack(StackName=service_name, TemplateBody=cf_template, Parameters=parameters, Capabilities=["CAPABILITY_IAM"])
+                            logging.info("Updating CloudFormation Stack: " + service_name)
+                            cf_response = cf_command(StackName=service_name, TemplateBody=cf_template, Parameters=parameters, Capabilities=["CAPABILITY_IAM"])
                             creating_stack_id = cf_response['StackId']
+                            stack_status = self.wait_for_stack_creation(cf_client, creating_stack_id, service_name)
+                            if existing_stack_id is not None:
+                                print("Registering new task defintion to restart services/deploy new containers")
+                                self.restart_tasks(cf_client, existing_stack_id, region, cf_params['cluster'])
                         except Exception as e:
                             logging.error("Error executing CloudFormation: %s" % filename)
                             logging.exception(e)
                             sys.exit(1)
-                        logging.info(cf_response)
-                        stack_status = self.wait_for_stack_creation(cf_client, creating_stack_id, service_name)
+
+    def restart_tasks(self, cf_client, existing_stack_id, region, cluster):
+        stack_resources = cf_client.describe_stack_resources(StackName=existing_stack_id)
+        for resource in stack_resources['StackResources']:
+            if resource['ResourceType'] == "AWS::ECS::TaskDefinition":
+                task_definition_arn = resource['PhysicalResourceId']
+            if resource['ResourceType'] == "AWS::ECS::Service":
+                service_arn = resource['PhysicalResourceId']
+
+        ecs_client = boto3.client('ecs', region_name=region)
+        describe_task_response = ecs_client.describe_task_definition(taskDefinition=task_definition_arn)
+        new_task = describe_task_response['taskDefinition']
+        new_task.pop('requiresAttributes')
+        new_task.pop('revision')
+        new_task.pop('status')
+        new_task.pop('taskDefinitionArn')
+        register_task_response = ecs_client.register_task_definition(**new_task)
+
+        update_service_response = ecs_client.update_service(cluster=cluster, service=service_arn, taskDefinition=register_task_response['taskDefinition']['taskDefinitionArn'])
+        update_status_code = update_service_response['ResponseMetadata']['HTTPStatusCode']
+        print("Update complete, status code: %d" % update_status_code)
+        if update_status_code >= 400:
+            sys.exit(1)
 
     def wait_for_stack_creation(self, cf_client, creating_stack_id, service_name):
         while True:
@@ -104,35 +127,15 @@ class ApplyCF:
                 describe_stacks_response = cf_client.describe_stacks(StackName=creating_stack_id)
                 stack_status = describe_stacks_response['Stacks'][0]['StackStatus']
                 if stack_status in self.success_status:
-                    logging.info("Stack creation complete, status: %s" % stack_status)
+                    logging.info("Stack update complete, status: %s" % stack_status)
                     break
                 elif stack_status in self.failed_status:
-                    logging.error("Stack creation failed, status: %s" % stack_status)
+                    logging.error("Stack update failed, status: %s" % stack_status)
                     sys.exit(1)
                 else:
-                    logging.info("Stack creation in progress, status: %s" % stack_status)
+                    logging.info("Stack update in progress, status: %s" % stack_status)
             except Exception as e:
                 logging.error("CloudFormation executed OK but stack was not created/updated: %s" % service_name)
-                logging.exception(e)
-                sys.exit(1)
-        return stack_status
-
-    def wait_for_stack_deletion(self, cf_client, existing_stack_id, service_name):
-        while True:
-            time.sleep(5)
-            try:
-                existing_stacks = cf_client.describe_stacks(StackName=existing_stack_id)
-                stack_status = existing_stacks['Stacks'][0]['StackStatus']
-                if stack_status == 'DELETE_COMPLETE':
-                    logging.info("Stack delete complete, status: %s" % stack_status)
-                    break
-                elif stack_status == 'DELETE_FAILED':
-                    logging.error("Stack delete failed, status: %s" % stack_status)
-                    sys.exit(1)
-                else:
-                    logging.info("Stack deletion in progress, status: %s" % stack_status)
-            except Exception as e:
-                logging.error("Existing stack was not deleted: %s" % service_name)
                 logging.exception(e)
                 sys.exit(1)
         return stack_status
