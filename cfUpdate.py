@@ -148,9 +148,11 @@ class ApplyCF:
         cf_params['listenerarn'] = listener_arn
         response = elb_client.describe_rules(ListenerArn=listener_arn)
         rules = response['Rules']
-        if 'priority' not in cf_params:
-            top_priority = max([int(r['Priority']) if r['Priority'] != 'default' else 0 for r in rules])
-            cf_params['priority'] = str(int(top_priority) + 1)
+        existing_priorities = set([rule['Priority'] for rule in rules])
+        for i in range(10, 21):
+            if str(i) not in existing_priorities:
+                cf_params['priority'] = str(i)
+                break
 
 
 def argv_to_dict(args):
