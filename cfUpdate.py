@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 import time
-
+import botocore
 import boto3
 
 from ecsUpdate import ApplyECS
@@ -71,11 +71,7 @@ class ApplyCF:
                             sys.exit(1)
 
                         try:
-                            for cf_parameter in validate_response['Parameters']:
-                                if cf_parameter['ParameterKey'] not in cf_params:
-                                    logging.warning("Parameter: %s is specified by template in %s but not specified after --cfparams" % (filename, cf_parameter['ParameterKey']))
-                                parameters.append({'ParameterKey': cf_parameter['ParameterKey'],
-                                                   'ParameterValue': cf_params[cf_parameter['ParameterKey']]})
+
                             service_name = "%s-%s-%s" % (env, name, cluster)
                             existing_stacks = cf_client.list_stacks()
                             existing_stack_id = None
@@ -84,11 +80,25 @@ class ApplyCF:
                                 if stack['StackName'] == service_name and stack['StackStatus'] != 'DELETE_COMPLETE':
                                     existing_stack_id = stack['StackId']
                                     cf_command = cf_client.update_stack
+                                    cf_params.pop('priority')  # don't need to set priority if this is an update operation
                                     break
+                            for cf_parameter in validate_response['Parameters']:
+                                if cf_parameter['ParameterKey'] not in cf_params:
+                                    logging.warning("Parameter: %s is specified by template in %s but not specified after --cfparams" % (filename, cf_parameter['ParameterKey']))
+                                    if existing_stack_id is not None:
+                                        parameters.append({'ParameterKey': cf_parameter['ParameterKey'], 'UsePreviousValue': True})
+                                else:
+                                    parameters.append({'ParameterKey': cf_parameter['ParameterKey'], 'ParameterValue': cf_params[cf_parameter['ParameterKey']]})
                             logging.info("Updating CloudFormation Stack: " + service_name)
-                            cf_response = cf_command(StackName=service_name, TemplateBody=cf_template, Parameters=parameters, Capabilities=["CAPABILITY_IAM"])
-                            creating_stack_id = cf_response['StackId']
-                            stack_status = self.wait_for_stack_creation(cf_client, creating_stack_id, service_name)
+                            try:
+                                cf_response = cf_command(StackName=service_name, TemplateBody=cf_template, Parameters=parameters, Capabilities=["CAPABILITY_IAM"])
+                                creating_stack_id = cf_response['StackId']
+                                stack_status = self.wait_for_stack_creation(cf_client, creating_stack_id, service_name)
+                            except botocore.exceptions.ClientError as e:
+                                if e.response["Error"]["Message"] == 'No updates are to be performed.':
+                                    logging.info("No updates to be performed, CF update succeeded.  Restarting tasks.")
+                                else:
+                                    raise
                             if existing_stack_id is not None:
                                 print("Registering new task defintion to restart services/deploy new containers")
                                 self.restart_tasks(cf_client, existing_stack_id, region, cf_params['cluster'])
