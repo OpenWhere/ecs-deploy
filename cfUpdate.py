@@ -23,14 +23,14 @@ class ApplyCF:
       with open(fn) as f:
         print f.read()
 
-    def main(self, dir_, cf_params):
+    def main(self, dir_, no_task_restart, cf_params):
 
         file_dir = os.path.dirname(os.path.realpath(__file__))
         job_path = os.path.join(file_dir, dir_)
 
-        self.load(job_path, cf_params)
+        self.load(job_path, no_task_restart, cf_params)
 
-    def load(self, job_path, cf_params):
+    def load(self, job_path, no_task_restart, cf_params):
         env = cf_params['env']
         cluster = cf_params['cluster']
         region = cf_params['region']
@@ -99,7 +99,7 @@ class ApplyCF:
                                     logging.info("No updates to be performed, CF update succeeded.  Restarting tasks.")
                                 else:
                                     raise
-                            if existing_stack_id is not None:
+                            if existing_stack_id is not None and not no_task_restart:
                                 print("Registering new task defintion to restart services/deploy new containers")
                                 self.restart_tasks(cf_client, existing_stack_id, region, cf_params['cluster'])
                         except Exception as e:
@@ -192,8 +192,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Executes CloudFormation templates to create / update ECS related resources')
     parser.add_argument('--dir', help='relative directory name of service and task definitions', default='ecs')
+    parser.add_argument('--no-task-restart', action='store_true', help='Don\'t restart ECS tasks after CF Deploy')
     parser.add_argument('--cfparams', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     cf_params = argv_to_dict(args.cfparams)
     validate_cf_params(cf_params)
-    p.main(args.dir, cf_params)
+    p.main(args.dir, args.no_task_restart, cf_params)
