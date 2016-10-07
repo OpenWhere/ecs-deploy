@@ -14,7 +14,8 @@ def rule_matches(r, name):
     for c in conditions:
         values = c['Values']
         for v in values:
-            if name in v:
+            rule = "/%s/*" % name
+            if rule == v:
                 return True
     return False
 
