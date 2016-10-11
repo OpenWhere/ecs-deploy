@@ -86,6 +86,7 @@ class ApplyCF:
                                 if cf_parameter['ParameterKey'] not in cf_params:
                                     logging.warning("Parameter: %s is specified by template in %s but not specified after --cfparams" % (filename, cf_parameter['ParameterKey']))
                                     if existing_stack_id is not None:
+                                        logging.warning("Using previos value for %s" % cf_parameter['ParameterKey'])
                                         parameters.append({'ParameterKey': cf_parameter['ParameterKey'], 'UsePreviousValue': True})
                                 else:
                                     parameters.append({'ParameterKey': cf_parameter['ParameterKey'], 'ParameterValue': cf_params[cf_parameter['ParameterKey']]})
@@ -159,6 +160,9 @@ class ApplyCF:
         response = elb_client.describe_rules(ListenerArn=listener_arn)
         rules = response['Rules']
         existing_priorities = set([rule['Priority'] for rule in rules])
+        if len(existing_priorities) >= 11:
+            logging.error("Listener %s already has %d rules, cannot add more services" % (listener_arn, len(existing_priorities)))
+            sys.exit(1)
         for i in range(10, 21):
             if str(i) not in existing_priorities:
                 cf_params['priority'] = str(i)
