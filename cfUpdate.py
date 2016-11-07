@@ -23,21 +23,23 @@ class ApplyCF:
       with open(fn) as f:
         print f.read()
 
-    def main(self, dir_, no_task_restart, cf_params):
+    def main(self, dir_, no_task_restart, listener_port, elb_name_suffix, cf_params):
 
         file_dir = os.path.dirname(os.path.realpath(__file__))
         job_path = os.path.join(file_dir, dir_)
 
-        self.load(job_path, no_task_restart, cf_params)
+        self.load(job_path, no_task_restart, listener_port, elb_name_suffix, cf_params)
 
-    def load(self, job_path, no_task_restart, cf_params):
+    def load(self, job_path, no_task_restart, listener_port, elb_name_suffix, cf_params):
         env = cf_params['env']
         cluster = cf_params['cluster']
         region = cf_params['region']
         elb_name = 'ecs-elb-' + cluster
+        if elb_name_suffix is not None:
+            elb_name = "-".join([elb_name, elb_name_suffix])
         cf_client = boto3.client('cloudformation', region_name=region)
 
-        self.extract_common_ecs_params(cf_params, cluster, elb_name, env, region)
+        self.extract_common_ecs_params(cf_params, cluster, elb_name, env, region, listener_port)
 
         for subdir, dirs, files in os.walk(job_path):
             for fn in files:
@@ -151,10 +153,10 @@ class ApplyCF:
                 sys.exit(1)
         return stack_status
 
-    def extract_common_ecs_params(self, cf_params, cluster, elb_name, env, region):
+    def extract_common_ecs_params(self, cf_params, cluster, elb_name, env, region, listener_port):
         elb_client = boto3.client('elbv2', region_name=region)
         balancer_arn, vpc_id = ApplyECS.get_load_balancer(elb_client, elb_name, cluster, env)
-        listener_arn = ApplyECS.get_elb_listener(elb_client, balancer_arn)
+        listener_arn = ApplyECS.get_elb_listener(elb_client, balancer_arn, port=listener_port)
         cf_params['vpcid'] = vpc_id
         cf_params['listenerarn'] = listener_arn
         response = elb_client.describe_rules(ListenerArn=listener_arn)
@@ -197,8 +199,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Executes CloudFormation templates to create / update ECS related resources')
     parser.add_argument('--dir', help='relative directory name of service and task definitions', default='ecs')
     parser.add_argument('--no-task-restart', action='store_true', help='Don\'t restart ECS tasks after CF Deploy')
+    parser.add_argument('--listener-port', help='Protocol of ALB listener to register service with', default='http')
+    parser.add_argument('--elb-name-suffix', help='Append to default ALB name when finding ALB to assign this service to', default=None)
     parser.add_argument('--cfparams', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     cf_params = argv_to_dict(args.cfparams)
     validate_cf_params(cf_params)
-    p.main(args.dir, args.no_task_restart, cf_params)
+    p.main(args.dir, args.no_task_restart, int(args.listener_port), args.elb_name_suffix, cf_params)
