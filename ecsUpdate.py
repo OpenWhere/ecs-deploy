@@ -131,11 +131,11 @@ class ApplyECS():
                 logging.error("Error uploading " + filename)
 
     @staticmethod
-    def configure_alb_and_rules(client, elb_name, service_name, container_name, cluster, env, priority, health_check_path):
+    def configure_alb_and_rules(client, elb_name, service_name, container_name, cluster, env, priority, health_check_path, listener_proto='HTTP'):
         # 1. Get the ALB
         balancer_arn, vpc_id = ApplyECS.get_load_balancer(client, elb_name, cluster, env)
         # 2. Find the listener
-        listener_arn = ApplyECS.get_elb_listener(client, balancer_arn)
+        listener_arn = ApplyECS.get_elb_listener(client, balancer_arn, protocol=listener_proto)
         # 3. Check or Create Target Group
         target_arn = ApplyECS.get_or_create_elb_target_group(client, elb_arn=balancer_arn, vpc_id=vpc_id,
                                                              cluster=cluster, env=env,
@@ -165,21 +165,24 @@ class ApplyECS():
             logging.error("No ELB found with name %s " % elb_name)
             sys.exit(1)
 
-    # TODO - Assumes 1 listener
     @staticmethod
-    def get_elb_listener(client, elb_arn):
+    def get_elb_listener(client, elb_arn, port=80):
         logging.info("Checking for listeners")
         response = client.describe_listeners(
             LoadBalancerArn=elb_arn
         )
         listeners = response['Listeners']
         if len(listeners) > 0:
-            listener = listeners[0]
+            listener_list = [x for x in listeners if x['Port'] == port]
+            if len(listener_list) == 0:
+                logging.error("No listeners found for ELB %s on port %d" % (elb_arn, port))
+                sys.exit(1)
+            listener = listener_list[0]
             listener_arn = listener['ListenerArn']
             logging.info("Found Listener with ARN: %s" % listener_arn)
             return listener_arn
         else:
-            logging.error("No listeners founf for ELB %s " % elb_arn)
+            logging.error("No listeners found for ELB %s " % elb_arn)
             sys.exit(1)
 
     @staticmethod
