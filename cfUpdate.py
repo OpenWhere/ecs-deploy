@@ -75,6 +75,8 @@ class ApplyCF:
                         try:
 
                             service_name = "%s-%s-%s" % (env, name, cluster)
+                            if elb_name_suffix is not None:
+                                service_name = "-".join([service_name, elb_name_suffix])
                             existing_stacks = cf_client.list_stacks()
                             existing_stack_id = None
                             cf_command = cf_client.create_stack
@@ -86,7 +88,7 @@ class ApplyCF:
                                     break
                             for cf_parameter in validate_response['Parameters']:
                                 if cf_parameter['ParameterKey'] not in cf_params:
-                                    logging.warning("Parameter: %s is specified by template in %s but not specified after --cfparams" % (filename, cf_parameter['ParameterKey']))
+                                    logging.warning("Parameter: %s is specified by template in %s but not specified after --cfparams" % (cf_parameter['ParameterKey'], filename))
                                     if existing_stack_id is not None:
                                         logging.warning("Using previos value for %s" % cf_parameter['ParameterKey'])
                                         parameters.append({'ParameterKey': cf_parameter['ParameterKey'], 'UsePreviousValue': True})
