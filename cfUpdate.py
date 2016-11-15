@@ -201,7 +201,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Executes CloudFormation templates to create / update ECS related resources')
     parser.add_argument('--dir', help='relative directory name of service and task definitions', default='ecs')
     parser.add_argument('--no-task-restart', action='store_true', help='Don\'t restart ECS tasks after CF Deploy')
-    parser.add_argument('--listener-port', help='Protocol of ALB listener to register service with', default='http')
+    parser.add_argument('--listener-port', help='Protocol of ALB listener to register service with', default=80)
     parser.add_argument('--elb-name-suffix', help='Append to default ALB name when finding ALB to assign this service to', default=None)
     parser.add_argument('--cfparams', nargs=argparse.REMAINDER)
     args = parser.parse_args()
