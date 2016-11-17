@@ -23,14 +23,14 @@ class ApplyCF:
       with open(fn) as f:
         print f.read()
 
-    def main(self, dir_, no_task_restart, listener_port, elb_name_suffix, cf_params):
+    def main(self, dir_, no_ecs_service, listener_port, elb_name_suffix, cf_params):
 
         file_dir = os.path.dirname(os.path.realpath(__file__))
         job_path = os.path.join(file_dir, dir_)
 
-        self.load(job_path, no_task_restart, listener_port, elb_name_suffix, cf_params)
+        self.load(job_path, no_ecs_service, listener_port, elb_name_suffix, cf_params)
 
-    def load(self, job_path, no_task_restart, listener_port, elb_name_suffix, cf_params):
+    def load(self, job_path, no_ecs_service, listener_port, elb_name_suffix, cf_params):
         env = cf_params['env']
         cluster = cf_params['cluster']
         region = cf_params['region']
@@ -39,7 +39,8 @@ class ApplyCF:
             elb_name = "-".join([elb_name, elb_name_suffix])
         cf_client = boto3.client('cloudformation', region_name=region)
 
-        self.extract_common_ecs_params(cf_params, cluster, elb_name, env, region, listener_port)
+        if not no_ecs_service:
+            self.populate_ecs_service_params(cf_params, cluster, elb_name, env, region, listener_port)
 
         for subdir, dirs, files in os.walk(job_path):
             for fn in files:
@@ -62,38 +63,17 @@ class ApplyCF:
                             logging.exception("Error reading file %s " % filename)
                             self.catfile(filename)
                             raise
-                        validate_response = {}
-                        try:
-                            validate_response = cf_client.validate_template(TemplateBody=cf_template)
-                            logging.info("CloudFormation template validated")
-                        except Exception as e:
-                            logging.error("Error validating file: %s" % filename)
-                            logging.error(validate_response)
-                            logging.exception(e)
-                            sys.exit(1)
+                        validate_response = self.validate_template(cf_client, cf_template, filename)
 
                         try:
-
                             service_name = "%s-%s-%s" % (env, name, cluster)
                             if elb_name_suffix is not None:
                                 service_name = "-".join([service_name, elb_name_suffix])
-                            existing_stacks = cf_client.list_stacks()
-                            existing_stack_id = None
                             cf_command = cf_client.create_stack
-                            for stack in existing_stacks['StackSummaries']:
-                                if stack['StackName'] == service_name and stack['StackStatus'] != 'DELETE_COMPLETE':
-                                    existing_stack_id = stack['StackId']
-                                    cf_command = cf_client.update_stack
-                                    cf_params.pop('priority')  # don't need to set priority if this is an update operation
-                                    break
-                            for cf_parameter in validate_response['Parameters']:
-                                if cf_parameter['ParameterKey'] not in cf_params:
-                                    logging.warning("Parameter: %s is specified by template in %s but not specified after --cfparams" % (cf_parameter['ParameterKey'], filename))
-                                    if existing_stack_id is not None:
-                                        logging.warning("Using previos value for %s" % cf_parameter['ParameterKey'])
-                                        parameters.append({'ParameterKey': cf_parameter['ParameterKey'], 'UsePreviousValue': True})
-                                else:
-                                    parameters.append({'ParameterKey': cf_parameter['ParameterKey'], 'ParameterValue': cf_params[cf_parameter['ParameterKey']]})
+                            existing_stack_id = self.find_existing_stack(cf_client, cf_params, service_name)
+                            if existing_stack_id is not None:
+                                cf_command = cf_client.update_stack
+                            self.populate_cf_params(cf_params, existing_stack_id, filename, parameters, validate_response)
                             logging.info("Updating CloudFormation Stack: " + service_name)
                             try:
                                 cf_response = cf_command(StackName=service_name, TemplateBody=cf_template, Parameters=parameters, Capabilities=["CAPABILITY_IAM"])
@@ -101,16 +81,49 @@ class ApplyCF:
                                 stack_status = self.wait_for_stack_creation(cf_client, creating_stack_id, service_name)
                             except botocore.exceptions.ClientError as e:
                                 if e.response["Error"]["Message"] == 'No updates are to be performed.':
-                                    logging.info("No updates to be performed, CF update succeeded.  Restarting tasks.")
+                                    logging.info("No updates to be performed, CF update succeeded.")
                                 else:
                                     raise
-                            if existing_stack_id is not None and not no_task_restart:
-                                print("Registering new task defintion to restart services/deploy new containers")
+                            if existing_stack_id is not None and not no_ecs_service:
+                                logging.info("Registering new task defintion to restart services/deploy new containers")
                                 self.restart_tasks(cf_client, existing_stack_id, region, cf_params['cluster'])
                         except Exception as e:
                             logging.error("Error executing CloudFormation: %s" % filename)
                             logging.exception(e)
                             sys.exit(1)
+
+    def populate_cf_params(self, cf_params, existing_stack_id, filename, parameters, validate_response):
+        for cf_parameter in validate_response['Parameters']:
+            if cf_parameter['ParameterKey'] not in cf_params:
+                logging.warning("Parameter: %s is specified by template in %s but not specified after --cfparams" % (cf_parameter['ParameterKey'], filename))
+                if existing_stack_id is not None:
+                    logging.warning("Using previous value for %s" % cf_parameter['ParameterKey'])
+                    parameters.append({'ParameterKey': cf_parameter['ParameterKey'], 'UsePreviousValue': True})
+            else:
+                parameters.append({'ParameterKey': cf_parameter['ParameterKey'], 'ParameterValue': cf_params[cf_parameter['ParameterKey']]})
+
+    def find_existing_stack(self, cf_client, cf_params, service_name):
+        existing_stack_id = None
+        existing_stacks = cf_client.list_stacks()
+        for stack in existing_stacks['StackSummaries']:
+            if stack['StackName'] == service_name and stack['StackStatus'] != 'DELETE_COMPLETE':
+                existing_stack_id = stack['StackId']
+                if cf_params.has_key('priority'):
+                    cf_params.pop('priority')  # don't need to set priority if this is an update operation
+                break
+        return existing_stack_id
+
+    def validate_template(self, cf_client, cf_template, filename):
+        validate_response = {}
+        try:
+            validate_response = cf_client.validate_template(TemplateBody=cf_template)
+            logging.info("CloudFormation template validated")
+        except Exception as e:
+            logging.error("Error validating file: %s" % filename)
+            logging.error(validate_response)
+            logging.exception(e)
+            sys.exit(1)
+        return validate_response
 
     def restart_tasks(self, cf_client, existing_stack_id, region, cluster):
         stack_resources = cf_client.describe_stack_resources(StackName=existing_stack_id)
@@ -131,7 +144,7 @@ class ApplyCF:
 
         update_service_response = ecs_client.update_service(cluster=cluster, service=service_arn, taskDefinition=register_task_response['taskDefinition']['taskDefinitionArn'])
         update_status_code = update_service_response['ResponseMetadata']['HTTPStatusCode']
-        print("Update complete, status code: %d" % update_status_code)
+        logging.info("ECS Task registration complete, status code: %d" % update_status_code)
         if update_status_code >= 400:
             sys.exit(1)
 
@@ -155,7 +168,7 @@ class ApplyCF:
                 sys.exit(1)
         return stack_status
 
-    def extract_common_ecs_params(self, cf_params, cluster, elb_name, env, region, listener_port):
+    def populate_ecs_service_params(self, cf_params, cluster, elb_name, env, region, listener_port):
         elb_client = boto3.client('elbv2', region_name=region)
         balancer_arn, vpc_id = ApplyECS.get_load_balancer(elb_client, elb_name, cluster, env)
         listener_arn = ApplyECS.get_elb_listener(elb_client, balancer_arn, port=listener_port)
@@ -200,11 +213,11 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Executes CloudFormation templates to create / update ECS related resources')
     parser.add_argument('--dir', help='relative directory name of service and task definitions', default='ecs')
-    parser.add_argument('--no-task-restart', action='store_true', help='Don\'t restart ECS tasks after CF Deploy')
+    parser.add_argument('--no-ecs-service', action='store_true', help='CF to deploy does not contain an ECS Service resource so don\'t try to inspect ELB listener and rules and don\'t restart ECS tasks after CF Deploy')
     parser.add_argument('--listener-port', help='Protocol of ALB listener to register service with', default=80)
     parser.add_argument('--elb-name-suffix', help='Append to default ALB name when finding ALB to assign this service to', default=None)
     parser.add_argument('--cfparams', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     cf_params = argv_to_dict(args.cfparams)
     validate_cf_params(cf_params)
-    p.main(args.dir, args.no_task_restart, int(args.listener_port), args.elb_name_suffix, cf_params)
+    p.main(args.dir, args.no_ecs_service, int(args.listener_port), args.elb_name_suffix, cf_params)
