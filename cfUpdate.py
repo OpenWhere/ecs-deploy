@@ -107,13 +107,10 @@ class ApplyCF:
 
     def find_existing_stack(self, cf_client, cf_params, service_name):
         existing_stack_id = None
-        existing_stacks = cf_client.list_stacks()
-        for stack in existing_stacks['StackSummaries']:
-            if stack['StackName'] == service_name and stack['StackStatus'] != 'DELETE_COMPLETE':
-                existing_stack_id = stack['StackId']
-                if cf_params.has_key('priority'):
-                    cf_params.pop('priority')  # don't need to set priority if this is an update operation
-                break
+        # There should be only 1 stack returned if running because we are using the stack name instead of ID/ARN
+        existing_stacks = cf_client.describe_stacks(StackName=service_name)
+        if existing_stacks is not None and len(existing_stacks) > 0:
+            existing_stack_id = existing_stacks['Stacks'][0]['StackId']
         return existing_stack_id
 
     def validate_template(self, cf_client, cf_template, filename):
