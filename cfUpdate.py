@@ -38,14 +38,14 @@ class ApplyCF:
         cf_client = boto3.client('cloudformation', region_name=region)
 
         has_ecs_service = False if deployment_type != 'ecs_service' else True
-        if has_ecs_service:
-            elb_name = 'ecs-elb-' + cluster
-            if elb_name_suffix is not None:
-                elb_name = "-".join([elb_name, elb_name_suffix])
-            self.populate_ecs_service_params(cf_params, cluster, elb_name, env, region, listener_port)
 
         for subdir, dirs, files in os.walk(job_path):
             for fn in files:
+                if has_ecs_service:
+                    elb_name = 'ecs-elb-' + cluster
+                    if elb_name_suffix is not None:
+                        elb_name = "-".join([elb_name, elb_name_suffix])
+                    self.populate_ecs_service_params(cf_params, cluster, elb_name, env, region, listener_port)
                 filename = os.path.join(subdir, fn)
 
                 # Skip non-cf files
@@ -112,6 +112,10 @@ class ApplyCF:
             existing_stacks = cf_client.describe_stacks(StackName=service_name)
             if existing_stacks is not None and len(existing_stacks) > 0:
                 existing_stack_id = existing_stacks['Stacks'][0]['StackId']
+                for parameter in existing_stacks['Stacks'][0]['Parameters']:
+                    if parameter['ParameterKey'] == 'priority':
+                        cf_params['priority'] = parameter['ParameterValue']
+                        break
         except botocore.exceptions.ClientError as ce:
             logging.info("Stack name: %s not found, creating instead of updating" % service_name)
         return existing_stack_id
