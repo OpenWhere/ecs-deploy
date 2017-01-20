@@ -23,27 +23,29 @@ class ApplyCF:
       with open(fn) as f:
         print f.read()
 
-    def main(self, dir_, no_ecs_service, listener_port, elb_name_suffix, cf_params):
+    def main(self, dir_, deployment_type, listener_port, elb_name_suffix, cf_params):
 
         file_dir = os.path.dirname(os.path.realpath(__file__))
         job_path = os.path.join(file_dir, dir_)
 
-        self.load(job_path, no_ecs_service, listener_port, elb_name_suffix, cf_params)
+        self.load(job_path, deployment_type, listener_port, elb_name_suffix, cf_params)
 
-    def load(self, job_path, no_ecs_service, listener_port, elb_name_suffix, cf_params):
+    def load(self, job_path, deployment_type, listener_port, elb_name_suffix, cf_params):
         env = cf_params['env']
-        cluster = cf_params['cluster']
         region = cf_params['region']
-        elb_name = 'ecs-elb-' + cluster
-        if elb_name_suffix is not None:
-            elb_name = "-".join([elb_name, elb_name_suffix])
+        cluster = cf_params['cluster'] if 'cluster' in cf_params else 'lambda'
+
         cf_client = boto3.client('cloudformation', region_name=region)
 
-        if not no_ecs_service:
-            self.populate_ecs_service_params(cf_params, cluster, elb_name, env, region, listener_port)
+        has_ecs_service = False if deployment_type != 'ecs_service' else True
 
         for subdir, dirs, files in os.walk(job_path):
             for fn in files:
+                if has_ecs_service:
+                    elb_name = 'ecs-elb-' + cluster
+                    if elb_name_suffix is not None:
+                        elb_name = "-".join([elb_name, elb_name_suffix])
+                    self.populate_ecs_service_params(cf_params, cluster, elb_name, env, region, listener_port)
                 filename = os.path.join(subdir, fn)
 
                 # Skip non-cf files
@@ -51,8 +53,8 @@ class ApplyCF:
                 if ext != 'template' and ext != 'yml':
                     continue
                 name = filename.split('/')[-1].split('.')[0]
-                cf_params['name'] = name
                 logging.info("Processing CloudFormation Template: " + filename)
+                cf_params['name'] = name
                 parameters = [{'ParameterKey': 'name', 'ParameterValue': name}]
 
                 if name is None or name in filename:
@@ -84,9 +86,10 @@ class ApplyCF:
                                     logging.info("No updates to be performed, CF update succeeded.")
                                 else:
                                     raise
-                            if existing_stack_id is not None and not no_ecs_service:
-                                logging.info("Registering new task defintion to restart services/deploy new containers")
-                                self.restart_tasks(cf_client, existing_stack_id, region, cf_params['cluster'])
+                            # No longer need to create new tasks because unique docker tags for each build ensure new tasks are created
+                            # if existing_stack_id is not None and has_ecs_service:
+                            #     logging.info("Registering new task defintion to restart services/deploy new containers")
+                            #     self.restart_tasks(cf_client, existing_stack_id, region, cf_params['cluster'])
                         except Exception as e:
                             logging.error("Error executing CloudFormation: %s" % filename)
                             logging.exception(e)
@@ -104,13 +107,17 @@ class ApplyCF:
 
     def find_existing_stack(self, cf_client, cf_params, service_name):
         existing_stack_id = None
-        existing_stacks = cf_client.list_stacks()
-        for stack in existing_stacks['StackSummaries']:
-            if stack['StackName'] == service_name and stack['StackStatus'] != 'DELETE_COMPLETE':
-                existing_stack_id = stack['StackId']
-                if cf_params.has_key('priority'):
-                    cf_params.pop('priority')  # don't need to set priority if this is an update operation
-                break
+        try:
+            # There will be at most 1 stack returned if running because we are using the stack name instead of ID/ARN
+            existing_stacks = cf_client.describe_stacks(StackName=service_name)
+            if existing_stacks is not None and len(existing_stacks) > 0:
+                existing_stack_id = existing_stacks['Stacks'][0]['StackId']
+                for parameter in existing_stacks['Stacks'][0]['Parameters']:
+                    if parameter['ParameterKey'] == 'priority':
+                        cf_params['priority'] = parameter['ParameterValue']
+                        break
+        except botocore.exceptions.ClientError as ce:
+            logging.info("Stack name: %s not found, creating instead of updating" % service_name)
         return existing_stack_id
 
     def validate_template(self, cf_client, cf_template, filename):
@@ -196,16 +203,23 @@ def argv_to_dict(args):
             argsdict[key] = value
     return argsdict
 
-def validate_cf_params(cf_params):
+
+def validate_cf_params(args, cf_params):
+    if args.deployment_type != 'ecs_service' and args.deployment_type != 'ecs_task' and args.deployment_type != 'lambda':
+        logging.error("--deployment_type must be of the values: ecs_service, ecs_task, lambda")
+        sys.exit(1)
+
     if 'env' not in cf_params:
-        logging.error("--cfparams must contain --env [value]")
-        sys.exit(1)
-    if 'cluster' not in cf_params:
-        logging.error("--cfparams must contain --cluster [value]")
-        sys.exit(1)
+            logging.error("--cfparams must contain --env [value]")
+            sys.exit(1)
     if 'region' not in cf_params:
-        logging.error("--cfparams must contain --region [value]")
-        sys.exit(1)
+            logging.error("--cfparams must contain --region [value]")
+            sys.exit(1)
+    if args.deployment_type == 'ecs_service' or args.deployment_type == 'ecs_task':
+        if 'cluster' not in cf_params:
+            logging.error("--cfparams must contain --cluster [value]")
+            sys.exit(1)
+
 
 if __name__ == '__main__':
     p = ApplyCF()
@@ -213,11 +227,11 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Executes CloudFormation templates to create / update ECS related resources')
     parser.add_argument('--dir', help='relative directory name of service and task definitions', default='ecs')
-    parser.add_argument('--no-ecs-service', action='store_true', help='CF to deploy does not contain an ECS Service resource so don\'t try to inspect ELB listener and rules and don\'t restart ECS tasks after CF Deploy')
+    parser.add_argument('--deployment_type', help='Specify type of CF being deployed, valid values: ecs_service, ecs_task, lambda', default='ecs_service')
     parser.add_argument('--listener-port', help='Protocol of ALB listener to register service with', default=80)
     parser.add_argument('--elb-name-suffix', help='Append to default ALB name when finding ALB to assign this service to', default=None)
     parser.add_argument('--cfparams', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     cf_params = argv_to_dict(args.cfparams)
-    validate_cf_params(cf_params)
-    p.main(args.dir, args.no_ecs_service, int(args.listener_port), args.elb_name_suffix, cf_params)
+    validate_cf_params(args, cf_params)
+    p.main(args.dir, args.deployment_type, int(args.listener_port), args.elb_name_suffix, cf_params)
