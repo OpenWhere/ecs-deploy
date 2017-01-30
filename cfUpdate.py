@@ -7,8 +7,11 @@ import sys
 import time
 import botocore
 import boto3
+import copy
 
 from ecsUpdate import ApplyECS
+from multiprocessing.pool import ThreadPool
+from multiprocessing import Queue
 
 logging.basicConfig(format="%(asctime)s %(levelname)s [%(threadName)s] - %(message)s", stream=sys.stdout,
                     level=logging.INFO)
@@ -18,6 +21,7 @@ class ApplyCF:
     def __init__(self):
         self.success_status = ['CREATE_COMPLETE','UPDATE_COMPLETE']
         self.failed_status = ['CREATE_FAILED', 'ROLLBACK_IN_PROGRESS','ROLLBACK_FAILED','ROLLBACK_COMPLETE','UPDATE_ROLLBACK_IN_PROGRESS','UPDATE_ROLLBACK_FAILED','UPDATE_ROLLBACK_COMPLETE']
+        self.q = Queue()
 
     def catfile(self, fn):
       with open(fn) as f:
@@ -39,61 +43,88 @@ class ApplyCF:
 
         has_ecs_service = False if deployment_type != 'ecs_service' else True
 
+        filenames = []
         for subdir, dirs, files in os.walk(job_path):
             for fn in files:
-                if has_ecs_service:
-                    elb_name = 'ecs-elb-' + cluster
+                filenames.append(os.path.join(subdir, fn))
+
+        pool = ThreadPool(32)
+        imap_result = pool.imap(self.process_cf_file, ((cf_client, cf_params, cluster, elb_name_suffix, env, fn, has_ecs_service, listener_port, region)
+                            for idx, fn in enumerate(filenames)), chunksize=1)
+        pool.close()
+        pool.join()
+        print("Completed update of %s" % job_path)
+        contains_failure = False
+        for i in range(len(filenames)):
+            job_result = self.q.get()
+            print job_result
+            if "Failed" in job_result:
+                contains_failure = True
+            imap_result.next()
+        if contains_failure:
+            sys.exit(1)
+
+    def process_cf_file(self, args):
+        try:
+            cf_client = args[0]
+            cf_params_local = copy.deepcopy(args[1])
+            cluster = args[2]
+            elb_name_suffix = args[3]
+            env = args[4]
+            filename = args[5]
+            has_ecs_service = args[6]
+            listener_port = args[7]
+            region = args[8]
+            if has_ecs_service:
+                elb_name = 'ecs-elb-' + cluster
+                if elb_name_suffix is not None:
+                    elb_name = "-".join([elb_name, elb_name_suffix])
+                self.populate_ecs_service_params(cf_params_local, cluster, elb_name, env, region, listener_port)
+            # Skip non-cf files
+            ext = filename.split('.')[-1]
+            if ext != 'template' and ext != 'yml':
+                return
+            name = filename.split('/')[-1].split('.')[0]
+            logging.info("%s: Processing CloudFormation Template" % filename)
+            cf_params_local['name'] = name
+            parameters = [{'ParameterKey': 'name', 'ParameterValue': name}]
+            if name is None or name in filename:
+                with open(filename, 'r') as f_h:
+                    try:
+                        cf_template = f_h.read()
+                    except:
+                        logging.exception("%s: Error reading file." % (filename))
+                        self.catfile(filename)
+                        raise
+                    validate_response = self.validate_template(cf_client, cf_template, filename)
+
+                    service_name = "%s-%s-%s" % (env, name, cluster)
                     if elb_name_suffix is not None:
-                        elb_name = "-".join([elb_name, elb_name_suffix])
-                    self.populate_ecs_service_params(cf_params, cluster, elb_name, env, region, listener_port)
-                filename = os.path.join(subdir, fn)
-
-                # Skip non-cf files
-                ext = filename.split('.')[-1]
-                if ext != 'template' and ext != 'yml':
-                    continue
-                name = filename.split('/')[-1].split('.')[0]
-                logging.info("Processing CloudFormation Template: " + filename)
-                cf_params['name'] = name
-                parameters = [{'ParameterKey': 'name', 'ParameterValue': name}]
-
-                if name is None or name in filename:
-                    with open(filename, 'r') as f_h:
-                        try:
-                            cf_template = f_h.read()
-                        except:
-                            logging.exception("Error reading file %s " % filename)
-                            self.catfile(filename)
+                        service_name = "-".join([service_name, elb_name_suffix])
+                    cf_command = cf_client.create_stack
+                    existing_stack_id = self.find_existing_stack(cf_client, cf_params_local, service_name)
+                    if existing_stack_id is not None:
+                        cf_command = cf_client.update_stack
+                    self.populate_cf_params(cf_params_local, existing_stack_id, filename, parameters, validate_response)
+                    logging.info("%s: Updating CloudFormation Stack" % (service_name))
+                    try:
+                        cf_response = cf_command(StackName=service_name, TemplateBody=cf_template, Parameters=parameters, Capabilities=["CAPABILITY_IAM"])
+                        creating_stack_id = cf_response['StackId']
+                        stack_status = self.wait_for_stack_creation(cf_client, creating_stack_id, service_name)
+                    except botocore.exceptions.ClientError as e:
+                        if e.response["Error"]["Message"] == 'No updates are to be performed.':
+                            logging.info("%s: No updates to be performed, CF update succeeded." % service_name)
+                        else:
                             raise
-                        validate_response = self.validate_template(cf_client, cf_template, filename)
+        except Exception as e:
+            logging.error("%s: Error executing CloudFormation Stack" % filename)
+            logging.exception(e)
+            self.q.put("%s Failed" % filename)
+            sys.exit(1)
+        self.q.put("%s Succeeded" % filename)
 
-                        try:
-                            service_name = "%s-%s-%s" % (env, name, cluster)
-                            if elb_name_suffix is not None:
-                                service_name = "-".join([service_name, elb_name_suffix])
-                            cf_command = cf_client.create_stack
-                            existing_stack_id = self.find_existing_stack(cf_client, cf_params, service_name)
-                            if existing_stack_id is not None:
-                                cf_command = cf_client.update_stack
-                            self.populate_cf_params(cf_params, existing_stack_id, filename, parameters, validate_response)
-                            logging.info("Updating CloudFormation Stack: " + service_name)
-                            try:
-                                cf_response = cf_command(StackName=service_name, TemplateBody=cf_template, Parameters=parameters, Capabilities=["CAPABILITY_IAM"])
-                                creating_stack_id = cf_response['StackId']
-                                stack_status = self.wait_for_stack_creation(cf_client, creating_stack_id, service_name)
-                            except botocore.exceptions.ClientError as e:
-                                if e.response["Error"]["Message"] == 'No updates are to be performed.':
-                                    logging.info("No updates to be performed, CF update succeeded.")
-                                else:
-                                    raise
-                            # No longer need to create new tasks because unique docker tags for each build ensure new tasks are created
-                            # if existing_stack_id is not None and has_ecs_service:
-                            #     logging.info("Registering new task defintion to restart services/deploy new containers")
-                            #     self.restart_tasks(cf_client, existing_stack_id, region, cf_params['cluster'])
-                        except Exception as e:
-                            logging.error("Error executing CloudFormation: %s" % filename)
-                            logging.exception(e)
-                            sys.exit(1)
+    def f_init(self, q):
+        self.q = q
 
     def populate_cf_params(self, cf_params, existing_stack_id, filename, parameters, validate_response):
         for cf_parameter in validate_response['Parameters']:
@@ -126,10 +157,10 @@ class ApplyCF:
             validate_response = cf_client.validate_template(TemplateBody=cf_template)
             logging.info("CloudFormation template validated")
         except Exception as e:
-            logging.error("Error validating file: %s" % filename)
+            logging.error("%s: Error validating file." % filename)
             logging.error(validate_response)
             logging.exception(e)
-            sys.exit(1)
+            raise
         return validate_response
 
     def restart_tasks(self, cf_client, existing_stack_id, region, cluster):
@@ -157,22 +188,22 @@ class ApplyCF:
 
     def wait_for_stack_creation(self, cf_client, creating_stack_id, service_name):
         while True:
-            time.sleep(5)
+            time.sleep(10)
             try:
                 describe_stacks_response = cf_client.describe_stacks(StackName=creating_stack_id)
                 stack_status = describe_stacks_response['Stacks'][0]['StackStatus']
                 if stack_status in self.success_status:
-                    logging.info("Stack update complete, status: %s" % stack_status)
+                    logging.info("%s: Stack update complete, status: %s" % (service_name, stack_status))
                     break
                 elif stack_status in self.failed_status:
-                    logging.error("Stack update failed, status: %s" % stack_status)
+                    logging.error("%s: Stack update failed, status: %s" % (service_name, stack_status))
                     sys.exit(1)
                 else:
-                    logging.info("Stack update in progress, status: %s" % stack_status)
+                    logging.info("%s: Stack update in progress, status: %s" % (service_name, stack_status))
             except Exception as e:
-                logging.error("CloudFormation executed OK but stack was not created/updated: %s" % service_name)
+                logging.error("%s: CloudFormation executed OK but stack was not created/updated." % service_name)
                 logging.exception(e)
-                sys.exit(1)
+                raise
         return stack_status
 
     def populate_ecs_service_params(self, cf_params, cluster, elb_name, env, region, listener_port):
@@ -191,7 +222,6 @@ class ApplyCF:
             if str(i) not in existing_priorities:
                 cf_params['priority'] = str(i)
                 break
-
 
 def argv_to_dict(args):
     argsdict = {}
