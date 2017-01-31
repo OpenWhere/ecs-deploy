@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Script to build and upload a docker image for this project
+# Script to promote an image from develop to release repository.
 #
 # $1 - tag of the image, defaults to latest
 
@@ -14,7 +14,7 @@ DOCKER_VERSION=`docker --version | cut -f3 | cut -d '.' -f2`
 [ ${DOCKER_VERSION} -lt 12 ] && TAG_FLAG='-f' || TAG_FLAG=''
 
 $(aws ecr get-login)
-docker build -t ${IMAGE_NAME} .
-docker tag ${TAG_FLAG} ${IMAGE_NAME} ${DOCKER_REPO}/develop/${IMAGE_NAME}:${TAG}
-docker push ${DOCKER_REPO}/develop/${IMAGE_NAME}:${TAG}
+docker tag ${TAG_FLAG} ${DOCKER_REPO}/develop/${IMAGE_NAME}:${TAG} ${DOCKER_REPO}/release/${IMAGE_NAME}:${TAG}
+docker push ${DOCKER_REPO}/release/${IMAGE_NAME}:${TAG}
+
 
