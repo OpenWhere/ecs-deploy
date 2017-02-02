@@ -21,6 +21,7 @@ class ApplyCF:
     def __init__(self):
         self.success_status = ['CREATE_COMPLETE','UPDATE_COMPLETE']
         self.failed_status = ['CREATE_FAILED', 'ROLLBACK_IN_PROGRESS','ROLLBACK_FAILED','ROLLBACK_COMPLETE','UPDATE_ROLLBACK_IN_PROGRESS','UPDATE_ROLLBACK_FAILED','UPDATE_ROLLBACK_COMPLETE']
+        self.deleteable_status = ['ROLLBACK_FAILED', 'UPDATE_ROLLBACK_FAILED']
         self.q = Queue()
 
     def catfile(self, fn):
@@ -142,6 +143,11 @@ class ApplyCF:
             # There will be at most 1 stack returned if running because we are using the stack name instead of ID/ARN
             existing_stacks = cf_client.describe_stacks(StackName=service_name)
             if existing_stacks is not None and len(existing_stacks) > 0:
+                if existing_stacks['Stacks'][0]['StackStatus'] in self.deleteable_status:
+                    logging.info("%s found in StackStatus: %s, so deleting." % (service_name, existing_stacks['Stacks'][0]['StackStatus']))
+                    cf_client.delete_stack(StackName=service_name)
+                    self.wait_for_stack_deletion(cf_client, service_name)
+                    return None
                 existing_stack_id = existing_stacks['Stacks'][0]['StackId']
                 for parameter in existing_stacks['Stacks'][0]['Parameters']:
                     if parameter['ParameterKey'] == 'priority':
@@ -205,6 +211,17 @@ class ApplyCF:
                 logging.exception(e)
                 raise
         return stack_status
+
+    def wait_for_stack_deletion(self, cf_client, service_name):
+        while True:
+            time.sleep(10)
+            try:
+                if cf_client.describe_stacks(StackName=service_name) is None:
+                    return
+            except Exception as e:
+                logging.error("%s: CloudFormation could not be deleted." % service_name)
+                logging.exception(e)
+                raise
 
     def populate_ecs_service_params(self, cf_params, cluster, elb_name, env, region, listener_port):
         elb_client = boto3.client('elbv2', region_name=region)
