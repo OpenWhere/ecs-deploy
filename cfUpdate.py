@@ -7,6 +7,7 @@ import sys
 import time
 import botocore
 import boto3
+import boto3.session
 import copy
 
 from ecsUpdate import ApplyECS
@@ -75,16 +76,17 @@ class ApplyCF:
             has_ecs_service = args[5]
             listener_port = args[6]
             region = args[7]
+            session = boto3.session.Session()
             if has_ecs_service:
                 elb_name = 'ecs-elb-' + cluster
                 if elb_name_suffix is not None:
                     elb_name = "-".join([elb_name, elb_name_suffix])
-                self.populate_ecs_service_params(cf_params_local, cluster, elb_name, env, region, listener_port)
+                self.populate_ecs_service_params(session, cf_params_local, cluster, elb_name, env, region, listener_port)
             # Skip non-cf files
             ext = filename.split('.')[-1]
             if ext != 'template' and ext != 'yml':
                 return
-            cf_client = boto3.client('cloudformation', region_name=region)
+            cf_client = session.client('cloudformation', region_name=region)
             name = filename.split('/')[-1].split('.')[0]
             logging.info("%s: Processing CloudFormation Template" % filename)
             cf_params_local['name'] = name
@@ -222,8 +224,8 @@ class ApplyCF:
                 logging.exception(e)
                 raise
 
-    def populate_ecs_service_params(self, cf_params, cluster, elb_name, env, region, listener_port):
-        elb_client = boto3.client('elbv2', region_name=region)
+    def populate_ecs_service_params(self, session, cf_params, cluster, elb_name, env, region, listener_port):
+        elb_client = session.client('elbv2', region_name=region)
         balancer_arn, vpc_id = ApplyECS.get_load_balancer(elb_client, elb_name, cluster, env)
         listener_arn = ApplyECS.get_elb_listener(elb_client, balancer_arn, port=listener_port)
         cf_params['vpcid'] = vpc_id
