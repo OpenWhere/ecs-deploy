@@ -6,6 +6,10 @@ machine:
   post:
     - aws configure set default.region us-east-1
 
+test:
+  override:
+    - echo "Tests disabled"
+
 dependencies:
  pre:
   - pip install -r requirements.txt
