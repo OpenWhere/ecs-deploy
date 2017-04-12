@@ -1,0 +1,25 @@
+machine:
+  services:
+    - docker
+  python:
+    version: 3.5.2 
+  post:
+    - aws configure set default.region us-east-1
+
+dependencies:
+ pre:
+  - pip install -r requirements.txt
+
+# CircleCI also has some built-in environment variables; see:
+# https://circleci.com/docs/environment-variables
+deployment:
+  dev:
+    branch: develop
+    commands:
+      - $(aws ecr get-login)
+      - export VERSION=$(python setup.py --version)_${CIRCLE_BUILD_NUM}_${CIRCLE_SHA1} && build/build-docker.sh ${VERSION} ${CIRCLE_BRANCH}
+  sit:
+    branch: master
+    commands:
+      - $(aws ecr get-login)
+      - export VERSION=$(python setup.py --version)_${CIRCLE_BUILD_NUM}_${CIRCLE_SHA1} && build/build-docker.sh ${VERSION} ${CIRCLE_BRANCH}
