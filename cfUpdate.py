@@ -233,7 +233,7 @@ class ApplyCF:
         response = elb_client.describe_rules(ListenerArn=listener_arn)
         rules = response['Rules']
         existing_priorities = set([rule['Priority'] for rule in rules])
-        if len(existing_priorities) >= 11:
+        if len(existing_priorities) >= 75:
             logging.error("Listener %s already has %d rules, cannot add more services" % (listener_arn, len(existing_priorities)))
             raise Exception("Listener %s already has %d rules, cannot add more services" % (listener_arn, len(existing_priorities)))
         for i in range(10, 21):
