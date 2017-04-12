@@ -37,9 +37,9 @@ class PyTest(TestCommand):
 setup(
     name='ecsdeploy',
     version=find_version('ecsdeploy', '__init__.py'),
-    author='msanders',
+    author='krioles',
     install_requires=[],
-    author_email='matthews@spaceflightindustries.com',
+    author_email='kevinr@spaceflightindustries.com',
     description='Tool used to deploy software to a pod',
     packages=['ecsdeploy']
 )
