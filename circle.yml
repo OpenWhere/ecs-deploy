@@ -13,7 +13,7 @@ test:
 dependencies:
  pre:
   - pip install -r requirements.txt
-  - ./ pip-parse.sh ${CIRCLE_PROJECT_USERNAME} ${CIRCLE_PROJECT_REPONAME} ${CIRCLE_REPOSITORY_URL} ${CIRCLE_SHA1} ${DEP_API_URL_DEV} ${DEP_API_KEY_DEV} || true
+  - ./pip-parse.sh ${CIRCLE_PROJECT_USERNAME} ${CIRCLE_PROJECT_REPONAME} ${CIRCLE_REPOSITORY_URL} ${CIRCLE_SHA1} ${DEP_API_URL_DEV} ${DEP_API_KEY_DEV} || true
 
 # CircleCI also has some built-in environment variables; see:
 # https://circleci.com/docs/environment-variables
