@@ -1,4 +1,4 @@
-FROM	python:2.7.11-alpine
+FROM	python:2.7-alpine
 
 RUN pip install --no-cache-dir boto3 && mkdir ~/.aws
  
