@@ -1,6 +1,7 @@
 FROM	python:2.7-alpine
 
-RUN pip install --no-cache-dir boto3 && mkdir ~/.aws
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt && mkdir ~/.aws
  
 WORKDIR /usr/src/app
 VOLUME ["~/.aws"]
